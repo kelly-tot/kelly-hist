@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Classroom Buzzer — 5 Groups</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    user-select: none;
+  }
+  h1 { margin: 10px 0; font-size: 2em; }
+  .status {
+    font-size: 1.4em;
+    min-height: 2em;
+    margin: 10px 0 20px;
+    text-align: center;
+    padding: 10px 25px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.08);
+    min-width: 400px;
+  }
+  .status.winner { background: #ffd700; color: #1a1a2e; font-weight: bold; animation: pulse 0.6s ease; }
+  @keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.08); }
+    100% { transform: scale(1); }
+  }
+  .groups {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 15px;
+    width: 100%;
+    max-width: 1100px;
+    margin-bottom: 25px;
+  }
+  .group {
+    padding: 25px 15px;
+    border-radius: 15px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: 3px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.08);
+  }
+  .group:hover { transform: translateY(-3px); background: rgba(255,255,255,0.15); }
+  .group:active { transform: scale(0.97); }
+  .group.locked { opacity: 0.35; cursor: not-allowed; }
+  .group.winner {
+    background: #ffd700;
+    color: #1a1a2e;
+    border-color: #fff;
+    transform: scale(1.05);
+    box-shadow: 0 0 30px #ffd700;
+  }
+  .group-name { font-size: 1.4em; font-weight: bold; margin-bottom: 8px; }
+  .group-key {
+    display: inline-block;
+    padding: 4px 10px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 6px;
+    font-size: 0.9em;
+    margin-bottom: 10px;
+  }
+  .score { font-size: 2.5em; font-weight: bold; }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  button {
+    padding: 12px 24px;
+    font-size: 1em;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.15s ease;
+  }
+  .btn-reset { background: #4CAF50; color: #fff; }
+  .btn-award { background: #2196F3; color: #fff; }
+  .btn-deduct { background: #ff9800; color: #fff; }
+  .btn-clear { background: #f44336; color: #fff; }
+  button:hover { transform: translateY(-2px); filter: brightness(1.1); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .hint { margin-top: 20px; font-size: 0.9em; opacity: 0.7; text-align: center; }
+</style>
+</head>
+<body>
+  <h1>Classroom Buzzer</h1>
+  <div class="status" id="status">Press a key (1–5) or click a group to buzz in</div>
+
+  <div class="groups" id="groups"></div>
+
+  <div class="controls">
+    <button class="btn-reset" onclick="resetBuzzer()">Reset Buzzer (Space)</button>
+    <button class="btn-award" onclick="award(1)" id="awardBtn" disabled>+1 Point to Winner</button>
+    <button class="btn-deduct" onclick="award(-1)" id="deductBtn" disabled>−1 Point from Winner</button>
+    <button class="btn-clear" onclick="clearScores()">Clear All Scores</button>
+  </div>
+
+  <div class="hint">
+    Keys: 1–5 to buzz · Space to reset · Click a group name to rename it
+  </div>
+
+<script>
+  const colors = ['#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#f39c12'];
+  const groups = [
+    { name: 'Group 1', score: 0, key: '1' },
+    { name: 'Group 2', score: 0, key: '2' },
+    { name: 'Group 3', score: 0, key: '3' },
+    { name: 'Group 4', score: 0, key: '4' },
+    { name: 'Group 5', score: 0, key: '5' },
+  ];
+  let winner = null;
+  let locked = false;
+
+  // Beep sound via Web Audio API
+  function beep(freq = 800, duration = 200) {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration / 1000);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + duration / 1000);
+    } catch (e) {}
+  }
+
+  function render() {
+    const container = document.getElementById('groups');
+    container.innerHTML = '';
+    groups.forEach((g, i) => {
+      const div = document.createElement('div');
+      div.className = 'group' + (winner === i ? ' winner' : (locked ? ' locked' : ''));
+      div.style.borderColor = colors[i];
+      div.onclick = () => buzz(i);
+      div.innerHTML = `
+        <div class="group-name" onclick="event.stopPropagation(); renameGroup(${i})">${g.name}</div>
+        <div class="group-key">Key: ${g.key}</div>
+        <div class="score">${g.score}</div>
+      `;
+      container.appendChild(div);
+    });
+    document.getElementById('awardBtn').disabled = winner === null;
+    document.getElementById('deductBtn').disabled = winner === null;
+  }
+
+  function buzz(i) {
+    if (locked) return;
+    locked = true;
+    winner = i;
+    const status = document.getElementById('status');
+    status.textContent = `🏆 ${groups[i].name} buzzed in first!`;
+    status.classList.add('winner');
+    beep(900, 300);
+    render();
+  }
+
+  function resetBuzzer() {
+    locked = false;
+    winner = null;
+    const status = document.getElementById('status');
+    status.textContent = 'Press a key (1–5) or click a group to buzz in';
+    status.classList.remove('winner');
+    render();
+  }
+
+  function award(points) {
+    if (winner === null) return;
+    groups[winner].score += points;
+    render();
+  }
+
+  function clearScores() {
+    if (!confirm('Clear all scores?')) return;
+    groups.forEach(g => g.score = 0);
+    resetBuzzer();
+  }
+
+  function renameGroup(i) {
+    const name = prompt('Rename group:', groups[i].name);
+    if (name && name.trim()) {
+      groups[i].name = name.trim();
+      render();
+    }
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === ' ') { e.preventDefault(); resetBuzzer(); return; }
+    const idx = groups.findIndex(g => g.key === e.key);
+    if (idx !== -1) buzz(idx);
+  });
+
+  render();
+</script>
+</body>
+</html>
